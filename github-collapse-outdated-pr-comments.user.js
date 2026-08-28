@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GitHub PR - Collapse Outdated Comments
 // @namespace    https://github.com/eveoh354/github-collapse-outdated-pr-comments
-// @version      1.0.0
-// @description  Automatically collapses expanded outdated review threads in GitHub pull requests.
+// @version      1.1.0
+// @description  Collapses outdated GitHub PR threads only when you wrote the latest reply.
 // @author       eveoh354
 // @homepageURL  https://github.com/eveoh354/github-collapse-outdated-pr-comments
 // @supportURL   https://github.com/eveoh354/github-collapse-outdated-pr-comments/issues
@@ -17,7 +17,7 @@
 (() => {
   'use strict';
 
-  const processed = new WeakSet();
+  const automaticallyCollapsed = new WeakSet();
   let scheduled = false;
 
   const isPullRequestPage = () => /^\/[^/]+\/[^/]+\/pull\/\d+(?:\/|$)/.test(location.pathname);
@@ -27,59 +27,102 @@
     return element.getClientRects().length > 0;
   };
 
-  const normalizedText = (element) =>
-    (element?.textContent ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const getLoggedInUser = () =>
+    document.querySelector('meta[name="user-login"]')?.getAttribute('content')?.toLowerCase();
 
-  const hasOutdatedMarker = (thread) => {
-    const semanticMarker = thread.querySelector(
-      '[aria-label*="outdated" i], [title*="outdated" i], [data-testid*="outdated" i], .outdated-comment',
-    );
-    if (semanticMarker) return true;
+  const getUsernameFromProfileLink = (link) => {
+    if (!(link instanceof HTMLAnchorElement)) return undefined;
 
-    const possibleBadges = thread.querySelectorAll(
-      '.Label, [class*="badge" i], [class*="label" i], summary, h3, h4',
-    );
-    return [...possibleBadges].some((element) => /^(outdated|过时)$/.test(normalizedText(element)));
+    const match = link.pathname.match(/^\/([^/]+)\/?$/);
+    return match ? decodeURIComponent(match[1]).toLowerCase() : undefined;
   };
 
-  const clickOnce = (button) => {
-    if (!(button instanceof HTMLElement) || processed.has(button) || !isVisible(button)) return false;
-    processed.add(button);
-    button.click();
-    return true;
+  const getLastReplyAuthor = (thread) => {
+    const authorLinks = thread.querySelectorAll(
+      'a.author, ' +
+        '[data-testid="comment-header"] a[data-testid="avatar-link"], ' +
+        '[data-testid="comment-header"] a[data-hovercard-type="user"]',
+    );
+
+    const authors = [...authorLinks].map(getUsernameFromProfileLink).filter(Boolean);
+    return authors.at(-1);
   };
 
-  const collapseLegacyThreads = () => {
-    for (const button of document.querySelectorAll('.js-toggle-outdated-comments')) {
-      const expanded = button.getAttribute('aria-expanded') === 'true';
-      const explicitlyCollapse = /\b(collapse|hide)\b/i.test(
-        `${button.textContent ?? ''} ${button.getAttribute('aria-label') ?? ''} ${button.getAttribute('title') ?? ''}`,
-      );
+  const isOutdatedThread = (thread) => {
+    if (thread.getAttribute('data-resolved') === 'true') return false;
 
-      // Avoid expanding a thread GitHub has already collapsed.
-      if (expanded || explicitlyCollapse) clickOnce(button);
+    const header = thread.querySelector(':scope > .js-toggle-outdated-comments');
+    const toggleText = header?.textContent ?? '';
+    if (/\boutdated\b/i.test(toggleText)) return true;
+
+    // In GitHub's current markup, an unresolved collapsible thread with this
+    // header class is an outdated thread. Resolved threads are excluded above.
+    if (header && thread.getAttribute('data-resolved') === 'false') return true;
+
+    return Boolean(
+      thread.querySelector(
+        ':scope > [aria-label*="outdated" i], ' +
+          ':scope > [title*="outdated" i], ' +
+          ':scope > [data-testid*="outdated" i], ' +
+          ':scope > .outdated-comment',
+      ),
+    );
+  };
+
+  const findThread = (element) =>
+    element.closest(
+      'review-thread-collapsible, .js-resolvable-timeline-thread-container, .js-resolvable-thread, .review-thread',
+    );
+
+  const getReviewThreads = () => {
+    const threads = new Set(document.querySelectorAll('review-thread-collapsible'));
+    for (const toggle of document.querySelectorAll('.js-toggle-outdated-comments')) {
+      const thread = findThread(toggle);
+      if (thread) threads.add(thread);
     }
+    return threads;
   };
 
-  const collapseModernThreads = () => {
-    for (const thread of document.querySelectorAll('review-thread-collapsible.open')) {
-      if (processed.has(thread) || !hasOutdatedMarker(thread)) continue;
+  const getToggleButton = (thread, expanded) =>
+    thread.querySelector(
+      `[data-target="review-thread-collapsible.button"][aria-expanded="${expanded}"], ` +
+        `:is(button, [role="button"])[data-action*="review-thread-collapsible#toggle"][aria-expanded="${expanded}"], ` +
+        `.js-toggle-outdated-comments:is(button, [role="button"])[aria-expanded="${expanded}"]`,
+    );
 
-      const button = thread.querySelector(
-        ':is(button, [role="button"])[aria-expanded="true"], ' +
-          ':is(button, [role="button"])[data-target*="collapsible" i], ' +
-          ':is(button, [role="button"])[data-action*="toggle" i]',
-      );
+  const updateThreads = () => {
+    const loggedInUser = getLoggedInUser();
+    if (!loggedInUser) return;
 
-      if (button && clickOnce(button)) processed.add(thread);
+    for (const thread of getReviewThreads()) {
+      if (!isOutdatedThread(thread)) continue;
+
+      const lastReplyAuthor = getLastReplyAuthor(thread);
+      if (!lastReplyAuthor) continue;
+
+      const expanded = getToggleButton(thread, 'true');
+      const collapsed = getToggleButton(thread, 'false');
+      const lastReplyIsMine = lastReplyAuthor === loggedInUser;
+
+      if (lastReplyIsMine && expanded && isVisible(expanded)) {
+        expanded.click();
+        automaticallyCollapsed.add(thread);
+        continue;
+      }
+
+      // If somebody replies after this script collapsed the thread, reopen it so
+      // the new message cannot remain hidden in the same browser session.
+      if (!lastReplyIsMine && automaticallyCollapsed.has(thread) && collapsed && isVisible(collapsed)) {
+        automaticallyCollapsed.delete(thread);
+        collapsed.click();
+      }
     }
   };
 
   const collapseOutdatedThreads = () => {
     scheduled = false;
     if (!isPullRequestPage()) return;
-    collapseLegacyThreads();
-    collapseModernThreads();
+    updateThreads();
   };
 
   const scheduleCollapse = () => {

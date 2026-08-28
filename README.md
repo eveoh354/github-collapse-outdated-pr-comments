@@ -1,12 +1,14 @@
 # GitHub Collapse Outdated PR Comments
 
-A lightweight userscript that automatically collapses expanded **Outdated** review threads on GitHub pull requests.
+A lightweight userscript that automatically collapses an **Outdated** review thread on GitHub pull requests only when you wrote its latest reply.
 
 GitHub does not provide a preference to collapse outdated PR comments by default. This script restores that focused review experience without changing any pull request data.
 
 ## Features
 
-- Automatically collapses outdated review threads on GitHub PR pages
+- Collapses an outdated thread only when its latest reply was written by the current GitHub user
+- Keeps outdated threads with an unanswered reply from somebody else expanded
+- Reopens a thread if somebody replies after the script automatically collapsed it
 - Supports GitHub's classic and newer pull request interfaces
 - Handles GitHub's client-side navigation and dynamically loaded comments
 - Never expands a thread that is already collapsed
@@ -55,7 +57,9 @@ GitHub occasionally changes its page structure. If outdated comments stop collap
 
 ## 中文说明
 
-这个用户脚本会在打开 GitHub Pull Request 时，自动折叠标记为 **Outdated** 的 Review 评论。脚本只改变当前页面的展示状态，不会修改 PR、评论或仓库数据。
+这个用户脚本会在打开 GitHub Pull Request 时检查标记为 **Outdated** 的 Review 线程。只有当最后一条回复由当前登录的 GitHub 用户发出时才会自动折叠，避免遗漏别人新发来、尚未回复的消息。如果脚本折叠后又有人回复，线程会在当前页面中重新展开。
+
+如果脚本无法可靠识别当前用户或最后回复者，它会保持线程展开。脚本只改变当前页面的展示状态，不会修改 PR、评论或仓库数据。
 
 Tampermonkey 不仅支持 Chrome，也支持 Edge、Firefox、Safari 和 Opera。先点击上表中对应浏览器的链接安装 Tampermonkey，再点击 **Install GitHub Collapse Outdated PR Comments** 安装本脚本即可。
 
