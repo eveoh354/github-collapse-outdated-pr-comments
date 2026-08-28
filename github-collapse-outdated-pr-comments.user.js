@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GitHub PR - Collapse Outdated Comments
 // @namespace    https://github.com/eveoh354/github-collapse-outdated-pr-comments
-// @version      1.1.0
+// @version      1.1.1
 // @description  Collapses outdated GitHub PR threads only when you wrote the latest reply.
 // @author       eveoh354
 // @homepageURL  https://github.com/eveoh354/github-collapse-outdated-pr-comments
@@ -48,12 +48,32 @@
     return authors.at(-1);
   };
 
+  const hasOutdatedBadge = (thread) => {
+    const badges = thread.querySelectorAll(
+      '.Label, ' +
+        '[class*="label" i], ' +
+        '[data-testid*="outdated" i], ' +
+        '[aria-label*="outdated" i], ' +
+        '[title*="outdated" i]',
+    );
+
+    return [...badges].some((badge) => {
+      const text = (badge.textContent ?? '').replace(/\s+/g, ' ').trim();
+      const metadata = `${badge.getAttribute('data-testid') ?? ''} ${badge.getAttribute('aria-label') ?? ''} ${badge.getAttribute('title') ?? ''}`;
+      return /^outdated$/i.test(text) || /\boutdated\b/i.test(metadata);
+    });
+  };
+
   const isOutdatedThread = (thread) => {
     if (thread.getAttribute('data-resolved') === 'true') return false;
 
     const header = thread.querySelector(':scope > .js-toggle-outdated-comments');
     const toggleText = header?.textContent ?? '';
     if (/\boutdated\b/i.test(toggleText)) return true;
+
+    // GitHub's conversation view renders the Outdated badge in the nested file
+    // header rather than in the collapsible thread header.
+    if (hasOutdatedBadge(thread)) return true;
 
     // In GitHub's current markup, an unresolved collapsible thread with this
     // header class is an outdated thread. Resolved threads are excluded above.
